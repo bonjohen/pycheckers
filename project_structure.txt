@@ -1,0 +1,41 @@
+checkers/
+│
+├── src/
+│   ├── __init__.py
+│   ├── main.py                 # Entry point, runs the game
+│   ├── game/
+│   │   ├── __init__.py
+│   │   ├── checkers_game.py    # Main game class
+│   │   ├── board.py            # Board operations and state
+│   │   ├── pieces.py           # Piece definitions and operations
+│   │   └── move_generator.py   # Move generation and validation
+│   │
+│   ├── ai/
+│   │   ├── __init__.py
+│   │   ├── minimax.py          # AI implementation
+│   │   └── evaluator.py        # Board evaluation functions
+│   │
+│   ├── ui/
+│   │   ├── __init__.py
+│   │   ├── renderer.py         # Drawing functions
+│   │   ├── menu.py            # Menu system
+│   │   ├── dialogs.py         # Modal dialogs
+│   │   └── constants.py        # UI constants and colors
+│   │
+│   └── utils/
+│       ├── __init__.py
+│       ├── file_handler.py     # Save/Load operations
+│       └── logger.py           # Logging configuration
+│
+├── tests/
+│   ├── __init__.py
+│   ├── test_board.py
+│   ├── test_moves.py
+│   └── test_ai.py
+│
+├── resources/
+│   └── images/                 # If you want to add images later
+│
+├── requirements.txt
+├── README.md
+└── .gitignore

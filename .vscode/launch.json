@@ -1,0 +1,16 @@
+{
+    "configurations": [
+        {
+            "name": "Python: Checkers Game",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/checkers/src/main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/checkers",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/checkers"
+            }
+        }
+    ]
+}
