@@ -25,4 +25,4 @@ MENU_HOVER = (170, 170, 170)
 # Game modes
 MODE_2P = "2P"
 MODE_1P = "1P"
-AI_DEPTH = 1
+AI_DEPTH = 3

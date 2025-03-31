@@ -1,29 +1,29 @@
 from .evaluator import evaluate_board
-from ..game.move_generator import get_possible_moves, apply_move
+from ..game.move_generator import get_possible_moves, get_all_moves, apply_move
+from ..game.pieces import RED_PIECE, BLACK_PIECE
 
 def minimax(board, depth, maximizing, alpha, beta, player):
     """
     Implements minimax algorithm with alpha-beta pruning.
     Returns (evaluation, best_move)
+    
+    Critical Fix (20250330-1): Previous version didn't switch players during recursive calls,
+    causing the AI to evaluate the same player's moves at all levels. This led to poor
+    decision making as it wasn't properly considering opponent responses.
     """
-    if depth == 0:
+    moves = get_all_moves(board, player)
+    if depth == 0 or not moves:
         return evaluate_board(board), None
 
-    moves = []
-    for r in range(8):
-        for c in range(8):
-            if board[r][c].lower() == player:
-                moves.extend(get_possible_moves(board, r, c))
-
-    if not moves:
-        return -float('inf') if maximizing else float('inf'), None
-
     best_move = None
+    # Switch players for the next recursive call
+    opponent_player = RED_PIECE if player == BLACK_PIECE else BLACK_PIECE
+
     if maximizing:
         max_eval = float('-inf')
         for move in moves:
             new_board = apply_move(board, move)
-            eval_val, _ = minimax(new_board, depth-1, False, alpha, beta, player)
+            eval_val, _ = minimax(new_board, depth-1, False, alpha, beta, opponent_player)
             if eval_val > max_eval:
                 max_eval = eval_val
                 best_move = move
@@ -35,7 +35,7 @@ def minimax(board, depth, maximizing, alpha, beta, player):
         min_eval = float('inf')
         for move in moves:
             new_board = apply_move(board, move)
-            eval_val, _ = minimax(new_board, depth-1, True, alpha, beta, player)
+            eval_val, _ = minimax(new_board, depth-1, True, alpha, beta, opponent_player)
             if eval_val < min_eval:
                 min_eval = eval_val
                 best_move = move
