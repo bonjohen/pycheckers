@@ -6,40 +6,46 @@ def minimax(board, depth, maximizing, alpha, beta, player):
     """
     Implements minimax algorithm with alpha-beta pruning.
     Returns (evaluation, best_move)
-    
-    Critical Fix (20250330-1): Previous version didn't switch players during recursive calls,
-    causing the AI to evaluate the same player's moves at all levels. This led to poor
-    decision making as it wasn't properly considering opponent responses.
     """
-    moves = get_all_moves(board, player)
+    if depth < 0:
+        raise ValueError("Depth must be non-negative")
+        
+    opponent_player = BLACK_PIECE if player == RED_PIECE else RED_PIECE
+    moves = get_all_moves(board, player if maximizing else opponent_player, True)
+    
     if depth == 0 or not moves:
         return evaluate_board(board), None
 
     best_move = None
-    # Switch players for the next recursive call
-    opponent_player = RED_PIECE if player == BLACK_PIECE else BLACK_PIECE
-
     if maximizing:
         max_eval = float('-inf')
         for move in moves:
-            new_board = apply_move(board, move)
-            eval_val, _ = minimax(new_board, depth-1, False, alpha, beta, opponent_player)
-            if eval_val > max_eval:
-                max_eval = eval_val
+            current = player if maximizing else opponent_player
+            new_board = apply_move(board, move, current)
+            eval_score, _ = minimax(new_board, depth - 1, False, alpha, beta, player)
+            
+            if eval_score > max_eval:
+                max_eval = eval_score
                 best_move = move
-            alpha = max(alpha, eval_val)
+                
+            alpha = max(alpha, eval_score)
             if beta <= alpha:
                 break
         return max_eval, best_move
     else:
         min_eval = float('inf')
         for move in moves:
-            new_board = apply_move(board, move)
-            eval_val, _ = minimax(new_board, depth-1, True, alpha, beta, opponent_player)
-            if eval_val < min_eval:
-                min_eval = eval_val
+            current = player if maximizing else opponent_player
+            new_board = apply_move(board, move, current)
+            eval_score, _ = minimax(new_board, depth - 1, True, alpha, beta, player)
+            
+            if eval_score < min_eval:
+                min_eval = eval_score
                 best_move = move
-            beta = min(beta, eval_val)
+                
+            beta = min(beta, eval_score)
             if beta <= alpha:
                 break
         return min_eval, best_move
+
+

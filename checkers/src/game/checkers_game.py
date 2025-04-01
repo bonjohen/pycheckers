@@ -28,50 +28,83 @@ class CheckersGame:
         self.renderer = Renderer(self.screen)
         self.menu_bar = MenuBar(self.font)
         
+        # Game state
         self.board = initialize_board()
         self.current_player = RED_PIECE  # Red always starts
         self.mode = "1P"  # "1P" or "2P"
+        self.engine_first = False
         self.selected_piece = None
         self.valid_moves = []
+        self.must_capture = True
+        self.status = "ACTIVE"  # "ACTIVE", "PAUSED", or "COMPLETED"
         
         # Move tracking
         self.current_red_moves = []
         self.current_black_moves = []
         self.turn_number = 0
         self.move_history = []
+        self.history_scroll = 0  # Added missing attribute
+        
+        # UI state
+        self.multi_hop_message = False  # Added missing attribute
         
         # Time tracking
         self.time_red = 0
         self.time_black = 0
         self.last_timer_update = time.time()
-        
-        # UI state
-        self.history_scroll = 0
         self.dirty = False
-        self.multi_hop_message = False
-        
-        # Captured pieces tracking
-        self.captured_black = []   # Black pieces captured by Red
-        self.captured_red = []     # Red pieces captured by Black
-        
-        logging.debug("CheckersGame initialized in 1-player mode.")
 
-    def new_game(self):
+    def new_game(self, engine_first=False):
         """Initializes a new game"""
         self.board = initialize_board()
         self.current_player = RED_PIECE
+        self.engine_first = engine_first
         self.selected_piece = None
         self.valid_moves = []
         self.move_history = []
+        self.history_scroll = 0  # Reset scroll position
+        self.multi_hop_message = False  # Reset message state
         self.time_red = 0
         self.time_black = 0
         self.last_timer_update = time.time()
-        self.mode = "1P"  # "1P" or "2P"
+        self.mode = "1P"
+        self.status = "ACTIVE"  # Reset status to ACTIVE
         self.dirty = False
-        logging.debug("New game initialized")
+        self.current_red_moves = []  # Reset move tracking
+        self.current_black_moves = []
+        self.turn_number = 0
+        
+        logging.debug(f"New game initialized (engine_first={engine_first})")
+        
+        # If engine should move first, switch sides
+        if engine_first:
+            self.current_player = BLACK_PIECE
+
+    def pause_game(self):
+        """Pause the game"""
+        if self.status == "ACTIVE":
+            self.status = "PAUSED"
+            logging.debug("Game paused")
+
+    def resume_game(self):
+        """Resume the game"""
+        if self.status == "PAUSED":
+            self.status = "ACTIVE"
+            self.last_timer_update = time.time()  # Reset timer
+            logging.debug("Game resumed")
+
+    def end_game(self, winner=None):
+        """End the game"""
+        self.status = "COMPLETED"
+        logging.debug(f"Game ended. Winner: {winner}")
 
     def run(self):
         """Main game loop"""
+        # If engine moves first, make the first move
+        if self.engine_first and self.mode == "1P":
+            self.current_player = BLACK_PIECE  # Set current player to black first
+            self.ai_move()
+        
         while True:
             self.clock.tick(30)
             self.handle_events()
@@ -117,51 +150,68 @@ class CheckersGame:
                             self.handle_board_click(event.pos)
 
     def handle_board_click(self, pos):
-        """Handle mouse click on the game board"""
-        row = (pos[1] - MENU_HEIGHT) // SQUARE_SIZE
-        col = (pos[0] - STORAGE_WIDTH) // SQUARE_SIZE
+        """Handle mouse clicks on the game board"""
+        if self.status != "ACTIVE":
+            return
         
+        boardR = board_rect()
+        cell_w = boardR.width // 8
+        cell_h = boardR.height // 8
+        col = (pos[0] - boardR.x) // cell_w
+        row = (pos[1] - boardR.y) // cell_h
+        
+        if not (0 <= row < 8 and 0 <= col < 8):
+            return
+        
+        logging.debug(f"[handle_click] Cell clicked: ({row}, {col})")
+        logging.debug(f"[handle_click] Current player: {self.current_player}")
+        logging.debug(f"[handle_click] Board state at clicked position: {self.board[row][col]}")
+
         if self.selected_piece:
-            move = ((self.selected_piece[0], self.selected_piece[1]), (row, col))
-            if move in self.valid_moves:
+            move = (self.selected_piece, (row, col))
+            possible = get_possible_moves(self.board, self.selected_piece[0], self.selected_piece[1], self.must_capture)
+            
+            if move in possible:
+                # Apply the move
+                self.board = apply_move(self.board, move, self.current_player)
                 move_str = f"({self.selected_piece[0]},{self.selected_piece[1]})->({row},{col})"
                 self.finish_half_turn(self.current_player, move_str)
-                self.board = apply_move(self.board, move)
+                
+                # Check for additional captures
                 if abs(row - self.selected_piece[0]) == 2:
                     further = get_capturing_moves_from(self.board, row, col)
                     if further:
                         self.multi_hop_message = True
                         self.selected_piece = (row, col)
                         self.valid_moves = further
-                        logging.debug("Extra hops available. Waiting for player input or escape.")
+                        logging.debug("Extra hops available")
                         return
-                self.switch_turn()
+                
+                # Clear selection and switch turns
                 self.selected_piece = None
                 self.valid_moves = []
                 self.multi_hop_message = False
+                self.switch_turn()
+                
+                # If it's AI's turn, make the move
                 if self.mode == "1P" and self.current_player == BLACK_PIECE:
                     self.ai_move()
             else:
-                # If the clicked cell is empty, clear selection
-                if self.board[row][col] == EMPTY:
-                    logging.debug("Clicked empty cell. Unselecting piece.")
-                    self.selected_piece = None
-                    self.valid_moves = []
-                # Else if clicked on a piece of the current player, change selection
-                elif self.board[row][col].lower() == self.current_player:
+                # If clicking on own piece, select it instead
+                if self.board[row][col].lower() == self.current_player:
                     self.selected_piece = (row, col)
-                    self.valid_moves = get_possible_moves(self.board, row, col)
-                    logging.debug(f"Selection changed to piece at ({row}, {col}).")
+                    self.valid_moves = get_possible_moves(self.board, row, col, self.must_capture)
                 else:
+                    # Invalid move, clear selection
                     self.selected_piece = None
                     self.valid_moves = []
         else:
+            # Select piece if it belongs to current player
             if self.board[row][col].lower() == self.current_player:
                 self.selected_piece = (row, col)
-                self.valid_moves = get_possible_moves(self.board, row, col)
-                logging.debug(f"Piece at ({row}, {col}) selected.")
-            else:
-                self.selected_piece = None
+                self.valid_moves = get_possible_moves(self.board, row, col, self.must_capture)
+                logging.debug(f"Selected piece at ({row}, {col})")
+                logging.debug(f"Valid moves: {self.valid_moves}")
 
     def draw(self):
         """Draw the game state"""
@@ -210,29 +260,43 @@ class CheckersGame:
         """Update game timers"""
         current_time = time.time()
         elapsed = current_time - self.last_timer_update
-        if self.current_player == RED_PIECE:
-            self.time_red += elapsed
-        else:
-            self.time_black += elapsed
+        
+        if self.status == "ACTIVE":  # Only update if game is active
+            if self.current_player == RED_PIECE:
+                self.time_red += elapsed
+            else:
+                self.time_black += elapsed
+        
         self.last_timer_update = current_time
 
     def ai_move(self):
         """Execute AI's move"""
-        logging.debug("AI turn triggered.")
-        _, best_move = minimax(self.board, AI_DEPTH, False, -float('inf'), float('inf'), BLACK_PIECE)
+        logging.debug("[ai_move] AI turn triggered.")
+        # Verify we're actually black's turn
+        if self.current_player != BLACK_PIECE:
+            logging.error(f"[ai_move] AI move attempted during {self.current_player}'s turn")
+            return
+        
+        _, best_move = minimax(self.board, AI_DEPTH, True, -float('inf'), float('inf'), BLACK_PIECE)
         if best_move:
             (sr, sc), (er, ec) = best_move
+            # Verify we're moving a black piece
+            if self.board[sr][sc].lower() != BLACK_PIECE:
+                logging.error(f"[ai_move] Invalid move attempt: trying to move {self.board[sr][sc]} piece at ({sr},{sc})")
+                return
+            
             move_str = f"({sr},{sc})->({er},{ec})"
+            logging.debug(f"[ai_move] Moving black piece from ({sr},{sc}) to ({er},{ec})")
+            self.board = apply_move(self.board, best_move, BLACK_PIECE)
             self.finish_half_turn(BLACK_PIECE, move_str)
-            logging.debug(f"AI move executed: {move_str}")
-            self.board = apply_move(self.board, best_move)
-            self.switch_turn()
+            logging.debug(f"[ai_move] AI move executed: {move_str}")
+            self.switch_turn()  # This should switch to RED_PIECE
         else:
             self.finish_half_turn(BLACK_PIECE, "No moves")
-            logging.debug("AI has no moves.")
+            logging.debug("[ai_move] AI has no moves.")
 
     def handle_menu_action(self, action):
-        """Handle menu selections"""
+        logging.debug(f"Menu action received: {action}")
         if action == "New Game":
             if self.dirty:
                 result = show_modal_dialog(self.screen, self.font, "Warning",
@@ -240,7 +304,13 @@ class CheckersGame:
                                          ["X", "Cancel", "Continue"])
                 if result != "Continue":
                     return
-            self.new_game()
+            self.new_game(self.engine_first)
+        elif action == "Engine First":
+            # Toggle who moves first and start new game
+            self.engine_first = not self.engine_first
+            self.new_game(self.engine_first)
+            self.current_red_moves.append(f"Engine First: {self.engine_first}")
+            self.dirty = True
         elif action == "Load Game":
             if self.dirty:
                 result = show_modal_dialog(self.screen, self.font, "Warning",
@@ -353,84 +423,92 @@ class CheckersGame:
         self.current_black_moves.clear()
 
     def switch_turn(self):
-        """Switch turns and complete the move history if needed"""
-        if self.current_player == BLACK_PIECE:
-            self.complete_turn()  # Only complete the turn after Black moves
+        """Switch the current player"""
+        logging.debug(f"[switch_turn] Switching turn from {self.current_player}")
         self.current_player = BLACK_PIECE if self.current_player == RED_PIECE else RED_PIECE
-        self.check_game_over()  # Check if the game is over after switching turns
-        self.selected_piece = None
-        self.valid_moves = []
-        logging.debug(f"Switched turn. Now it's {'RED' if self.current_player == RED_PIECE else 'BLACK'}'s turn.")
-
-    def ai_move(self):
-        """Execute AI's move"""
-        logging.debug("AI turn triggered.")
-        _, best_move = minimax(self.board, AI_DEPTH, False, -float('inf'), float('inf'), BLACK_PIECE)
-        if best_move:
-            (sr, sc), (er, ec) = best_move
-            move_str = f"({sr},{sc})->({er},{ec})"
-            self.finish_half_turn(BLACK_PIECE, move_str)
-            logging.debug(f"AI move executed: {move_str}")
-            self.board = apply_move(self.board, best_move)
-            self.switch_turn()
+        logging.debug(f"[switch_turn] Turn switched to {self.current_player}")
+        
+        # Update game state
+        if self.check_game_over():
+            self.status = "COMPLETED"  # Set status to COMPLETED if game is over
         else:
-            self.finish_half_turn(BLACK_PIECE, "No moves")
-            logging.debug("AI has no moves.")
+            self.selected_piece = None
+            self.valid_moves = []
+            logging.debug(f"[switch_turn] Switched turn. Now it's {'RED' if self.current_player == RED_PIECE else 'BLACK'}'s turn.")
 
     def handle_board_click(self, pos):
         """Handle mouse clicks on the game board"""
+        if self.status != "ACTIVE":
+            return
+        
         boardR = board_rect()
+        # Calculate cell position
         cell_w = boardR.width // 8
         cell_h = boardR.height // 8
+        # Calculate board coordinates
         col = (pos[0] - boardR.x) // cell_w
         row = (pos[1] - boardR.y) // cell_h
+        
+        # Validate the calculated position
+        if not (0 <= row < 8 and 0 <= col < 8):
+            return
+        
         logging.debug(f"Cell clicked: ({row}, {col})")
+        logging.debug(f"Current player: {self.current_player}")
+        logging.debug(f"Board state at clicked position: {self.board[row][col]}")
 
+        # If a piece is already selected
         if self.selected_piece:
             move = (self.selected_piece, (row, col))
-            possible = get_possible_moves(self.board, self.selected_piece[0], self.selected_piece[1])
+            possible = get_possible_moves(self.board, self.selected_piece[0], self.selected_piece[1], self.must_capture)
+            
             if move in possible:
+                # Apply the move
+                self.board = apply_move(self.board, move, self.current_player)
                 move_str = f"({self.selected_piece[0]},{self.selected_piece[1]})->({row},{col})"
                 self.finish_half_turn(self.current_player, move_str)
-                self.board = apply_move(self.board, move)
+                
+                # Check for additional captures
                 if abs(row - self.selected_piece[0]) == 2:
                     further = get_capturing_moves_from(self.board, row, col)
                     if further:
                         self.multi_hop_message = True
                         self.selected_piece = (row, col)
                         self.valid_moves = further
-                        logging.debug("Extra hops available. Waiting for player input or escape.")
+                        logging.debug("Extra hops available")
                         return
-                self.switch_turn()
+                
+                # Clear selection and switch turns
                 self.selected_piece = None
                 self.valid_moves = []
                 self.multi_hop_message = False
+                self.switch_turn()
+                
+                # If it's AI's turn, make the move
                 if self.mode == "1P" and self.current_player == BLACK_PIECE:
                     self.ai_move()
             else:
-                # If the clicked cell is empty, clear selection
-                if self.board[row][col] == EMPTY:
-                    logging.debug("Clicked empty cell. Unselecting piece.")
-                    self.selected_piece = None
-                    self.valid_moves = []
-                # Else if clicked on a piece of the current player, change selection
-                elif self.board[row][col].lower() == self.current_player:
+                # If clicking on own piece, select it instead
+                if self.board[row][col].lower() == self.current_player:
                     self.selected_piece = (row, col)
-                    self.valid_moves = get_possible_moves(self.board, row, col)
-                    logging.debug(f"Selection changed to piece at ({row}, {col}).")
+                    self.valid_moves = get_possible_moves(self.board, row, col, self.must_capture)
                 else:
+                    # Invalid move, clear selection
                     self.selected_piece = None
                     self.valid_moves = []
         else:
+            # Select piece if it belongs to current player
             if self.board[row][col].lower() == self.current_player:
                 self.selected_piece = (row, col)
-                self.valid_moves = get_possible_moves(self.board, row, col)
-                logging.debug(f"Piece at ({row}, {col}) selected.")
-            else:
-                self.selected_piece = None
+                self.valid_moves = get_possible_moves(self.board, row, col, self.must_capture)
+                logging.debug(f"Selected piece at ({row}, {col})")
+                logging.debug(f"Valid moves: {self.valid_moves}")
 
     def check_game_over(self):
         """Check if the game is over due to no moves or no pieces"""
+        if self.status != "ACTIVE":
+            return False
+
         # Count pieces
         red_count = sum(row.count(RED_PIECE) + row.count(RED_KING) for row in self.board)
         black_count = sum(row.count(BLACK_PIECE) + row.count(BLACK_KING) for row in self.board)
@@ -439,6 +517,7 @@ class CheckersGame:
         if red_count == 0 or black_count == 0:
             winner = "Black" if red_count == 0 else "Red"
             logging.debug(f"Game over: {winner} wins - opponent has no pieces left")
+            self.status = "COMPLETED"  # Update status
             res = show_modal_dialog(self.screen, self.font, "Game Over",
                                   f"{winner} wins! Play again?", ["Yes", "No"])
             if res == "Yes":
@@ -449,10 +528,11 @@ class CheckersGame:
             return True
 
         # Check for no moves
-        moves = get_all_moves(self.board, self.current_player)
+        moves = get_all_moves(self.board, self.current_player, self.must_capture)
         if not moves:
             winner = "Black" if self.current_player == RED_PIECE else "Red"
             logging.debug(f"Game over: {winner} wins - {self.current_player} has no moves")
+            self.status = "COMPLETED"  # Update status
             res = show_modal_dialog(self.screen, self.font, "Game Over",
                                   f"{winner} wins! Play again?", ["Yes", "No"])
             if res == "Yes":
@@ -463,6 +543,19 @@ class CheckersGame:
             return True
         
         return False
+
+    def cleanup(self):
+        """Cleanup resources"""
+        try:
+            pygame.quit()
+        except Exception:
+            pass
+
+    def __del__(self):
+        """Destructor to ensure cleanup"""
+        self.cleanup()
+
+
 
 
 
